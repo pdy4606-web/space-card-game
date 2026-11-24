@@ -256,7 +256,7 @@ input[type=text]:focus{outline:2px solid var(--gold)}
     <h1>우주탐사 역사<br>카드게임</h1>
     <p>영상을 보고 → 퀴즈 80점 넘기고 → 카드게임 2개를 완료하면 🎓 증서를 받아요!</p>
   </div>
-  <div class="explorer" id="explorer"></div>
+  <div class="center" style="margin-bottom:12px"><button class="btn" id="teacherToggle">🔑 교사용 모드</button></div><div class="explorer" id="explorer"></div>
   <p style="text-align:center;color:var(--muted);margin:8px">수업 활동 확인을 위해 입력 정보와 활동 결과가 담당 교사에게 전송됩니다.</p>
   <div class="modes">
     <button class="mode m0" data-go="quiz" data-lock="quiz">
@@ -462,20 +462,23 @@ function loadRec(k){try{return JSON.parse(localStorage.getItem(k)||'[]')}catch(e
 function saveRec(k,arr){try{localStorage.setItem(k,JSON.stringify(arr))}catch(e){}}
 let memRec={};
 function addRecord(k,rec){
+  if(teacherMode)return [{...rec,name:'교사용 시범'}];
   let arr=loadRec(k); if(!arr.length && memRec[k]) arr=memRec[k];
   rec={...rec,name:'탐험가'}; arr.push(rec); arr.sort((a,b)=>a.time-b.time); arr=arr.slice(0,10);
   memRec[k]=arr; saveRec(k,arr); return arr;
 }
-function getRecords(k){const a=loadRec(k);return a.length?a:(memRec[k]||[])}
+function getRecords(k){if(teacherMode)return [];const a=loadRec(k);return a.length?a:(memRec[k]||[])}
 
 
 /* ---------- progress ---------- */
 const PKEY='space-progress-school-v1';
 let P=(()=>{try{return JSON.parse(localStorage.getItem(PKEY)||'null')}catch(e){return null}})()||{name:'',quiz:null,order:null,match:null};
+let teacherMode=false, studentProgress=null;
+const TEACHER_CODE='4827'; // 교사용 시범 코드 변경 가능 (보안 인증 아님)
 const RECORD_URL='https://script.google.com/macros/s/AKfycbzfKuNsmP5OBo-kplS0ng-HphK-RPuKTKHxA3CvULzKOMix3jdn5gXY0rEDEL7VpjtnRA/exec';
 let recordChain=Promise.resolve();
 function sendRecord(stage, extra={}){
- if(!P.name||!P.grade)return;
+ if(teacherMode||!P.name||!P.grade)return;
  const payload={grade:P.grade,classNo:P.classNo,number:P.number,name:P.name,quizScore:P.quiz?.pts??'',quizAttempts:P.attempts||0,orderTime:P.order?(P.order.time/1000).toFixed(1):'',matchTime:P.match?.time!=null?(P.match.time/1000).toFixed(1):P.match?.label||'',completed:allDone(),wrongAnswers:P.wrong||'',stage,...extra};
  recordChain=recordChain.then(async()=>{
  const status=document.getElementById('recordStatus');
@@ -485,10 +488,11 @@ function sendRecord(stage, extra={}){
  }catch(e){status.textContent='기록 저장 확인 실패 — 선생님께 알려 주세요. (중복 저장 가능)';}
  });
 }
-function saveP(){try{localStorage.setItem(PKEY,JSON.stringify(P))}catch(e){}}
+function saveP(){if(teacherMode)return;try{localStorage.setItem(PKEY,JSON.stringify(P))}catch(e){}}
 const quizPass=()=>!!(P.quiz&&P.quiz.pass);
 const allDone=()=>quizPass()&&!!P.order&&!!P.match;
 function lockReason(id){
+  if(teacherMode&&id!=='cert')return '';
   if(['quiz','order','msetup','match','cert'].includes(id)&&!P.name) return '먼저 탐험가 이름을 입력하고 ‘탐험 시작’을 눌러 주세요!';
   if((id==='order')&&!quizPass()) return '🔒 퀴즈에서 80점 이상을 받아야 게임 1이 열려요.';
   if((id==='msetup'||id==='match')&&!P.order) return '🔒 게임 1(역사 순서 배열)을 완료해야 게임 2가 열려요.';
@@ -499,6 +503,12 @@ let toastT;
 function toast(msg){document.querySelectorAll('.toast').forEach(x=>x.remove());const d=document.createElement('div');d.className='toast';d.textContent=msg;document.body.appendChild(d);clearTimeout(toastT);toastT=setTimeout(()=>d.remove(),2600);sfx.bad()}
 function renderHome(){
   const E=$('#explorer');
+  $('#teacherToggle').textContent=teacherMode?'↩ 학생용 모드로 돌아가기':'🔑 교사용 모드';
+  if(teacherMode){
+    E.innerHTML='<div class="ex-head"><span class="who">👩‍🏫 교사용 시범 모드</span></div><p>점수 및 순서 제한 없이 모든 게임을 실행할 수 있어요. 학생 기록은 전송되지 않습니다.</p>';
+    document.querySelectorAll('[data-lock]').forEach(b=>{b.classList.remove('locked','done')});
+    $('#oName').value=P.name;$('#mName').value=P.name;MS.names[0]=P.name;renderNames();return;
+  }
   if(!P.name){
     E.innerHTML=`<div class="ex-start"><span class="jua" style="font-size:22px">🧑‍🚀 탐험가 이름</span><select id="exGrade" aria-label="학년"><option value="2">2학년</option><option value="1">1학년</option><option value="3">3학년</option></select><input type="text" inputmode="numeric" id="exClass" placeholder="반" maxlength="2" style="width:75px"><input type="text" inputmode="numeric" id="exNumber" placeholder="번호" maxlength="2" style="width:85px"><input type="text" id="exName" maxlength="12" placeholder="이름을 입력하세요"><button class="btn primary" id="exGo">탐험 시작!</button></div>`;
     const go=()=>{const v=$('#exName').value.trim();if(!v){$('#exName').focus();toast('이름을 입력해 주세요!');return}const c=$('#exClass').value.trim(),n=$('#exNumber').value.trim();if(!/^[1-9][0-9]?$/.test(c)||!/^[1-9][0-9]?$/.test(n)||!/^[가-힣a-zA-Z ]{1,12}$/.test(v)){toast('반, 번호, 이름을 정확히 입력해 주세요!');return}P={name:v,grade:$('#exGrade').value,classNo:c,number:n,attempts:0,quiz:null,order:null,match:null};saveP();sendRecord('활동 시작');sfx.ok();renderHome()};
@@ -609,7 +619,7 @@ function recordsModal(k,title,extra){
   openModal(`<h2>🏆 ${title}</h2>${lbTable(getRecords(k),-1,extra)}
   <div class="center" style="margin-top:16px"><button class="btn" id="clr">기록 지우기</button><button class="btn primary" id="cls">닫기</button></div>`);
   $('#cls').onclick=closeModal;
-  $('#clr').onclick=()=>{memRec[k]=[];saveRec(k,[]);recordsModal(k,title,extra)};
+  $('#clr').onclick=()=>{if(teacherMode)return;memRec[k]=[];saveRec(k,[]);recordsModal(k,title,extra)};
 }
 
 /* ---------- card builders ---------- */
@@ -897,11 +907,11 @@ function qEnd(){
   if(!P.quiz||pts>P.quiz.pts||(pass&&!P.quiz.pass))P.quiz={pts,s,pass:pass||was};
   P.wrong=Q.res.map((r,i)=>r&&!r.ok?i+1:null).filter(x=>x!==null).join(', ');saveP();sendRecord('퀴즈 결과',{quizScore:pts});
   if(pass){sfx.win();confetti()}else sfx.bad();
-  const msg=s===n?'만점! 우주탐사 박사님이에요 🚀 게임 1이 열렸어요!':pass?'통과! 🎉 게임 1(역사 순서 배열)이 열렸어요!':`80점 이상이어야 다음 게임이 열려요. ${Math.ceil(n*.8)-s}문제만 더 맞히면 돼요! 퀴즈 예습으로 복습하고 다시 도전해요.`;
+  const msg=teacherMode?'교사용 시범 모드: 점수와 관계없이 다음 게임으로 이동할 수 있어요.':s===n?'만점! 우주탐사 박사님이에요 🚀 게임 1이 열렸어요!':pass?'통과! 🎉 게임 1(역사 순서 배열)이 열렸어요!':`80점 이상이어야 다음 게임이 열려요. ${Math.ceil(n*.8)-s}문제만 더 맞히면 돼요! 퀴즈 예습으로 복습하고 다시 도전해요.`;
   $('#qMain').innerHTML=`<div class="prog"><i style="width:100%"></i></div><div class="qcard">
     <span class="qno">퀴즈 결과</span><div class="score-big">${pts}점</div><p style="font-size:17px">${n}문제 중 ${s}문제 정답</p>
     <div class="passbar"><i style="width:${pts}%;background:${pass?'var(--ok)':'var(--bad)'}"></i><span class="line"></span></div><p style="color:var(--muted);font-size:18px">${msg}</p>
-    <div class="qtools" style="margin-top:18px"><button class="btn${quizPass()?'':' primary'}" id="qRe">다시 풀기</button><button class="btn" data-go2="qstudy" id="qPrev">📝 퀴즈 예습</button>${quizPass()?'<button class="btn primary" id="qGo">2단계 · 순서 배열 게임으로 →</button>':''}</div>
+    <div class="qtools" style="margin-top:18px"><button class="btn${quizPass()?'':' primary'}" id="qRe">다시 풀기</button><button class="btn" data-go2="qstudy" id="qPrev">📝 퀴즈 예습</button>${(teacherMode||quizPass())?'<button class="btn primary" id="qGo">2단계 · 순서 배열 게임으로 →</button>':''}</div>
     <div class="review">${QUIZ.map((it,i)=>{const r=Q.res[i]||{ok:false,mine:''};return `<div class="it ${r.ok?'':'x'}">${r.ok?'⭕':'❌'} <b>${i+1}.</b> ${esc(it.q)}<br><b>정답:</b> ${esc(it.ox||it.a)}${r.ok?'':` <span class="me">(내 답: ${esc(r.mine||'-')})</span>`}</div>`}).join('')}</div></div>`;
   $('#qRe').onclick=qStart;$('#qPrev').onclick=()=>show('qstudy');const g=$('#qGo');if(g)g.onclick=()=>show('order');
 }
@@ -913,6 +923,12 @@ function renderQStudy(){
 $('#qsAll').onclick=()=>document.querySelectorAll('.qsi').forEach(b=>b.classList.add('open'));
 $('#qsNone').onclick=()=>document.querySelectorAll('.qsi').forEach(b=>b.classList.remove('open'));
 
+$('#teacherToggle').onclick=()=>{
+  if(teacherMode){teacherMode=false;P=studentProgress;studentProgress=null;$('#recordStatus').textContent='';show('home');return;}
+  openModal(`<h2>🔑 교사용 모드</h2><p style="margin:12px 0">교사용 시범 코드를 입력하세요.</p><input id="teacherCode" type="password" inputmode="numeric" autocomplete="off" style="padding:12px;border-radius:12px;font-size:20px;width:180px;text-align:center"><p id="teacherError" role="alert" style="color:var(--bad);margin:8px"></p><div class="center"><button class="btn" id="teacherCancel">취소</button><button class="btn primary" id="teacherEnter">확인</button></div>`);
+  const enter=()=>{if($('#teacherCode').value!==TEACHER_CODE){$('#teacherError').textContent='코드가 일치하지 않습니다.';return;}studentProgress=P;P={name:'교사용 시범',quiz:null,order:null,match:null};teacherMode=true;$('#recordStatus').textContent='';closeModal();show('home');};
+  $('#teacherCancel').onclick=closeModal;$('#teacherEnter').onclick=enter;$('#teacherCode').onkeydown=e=>{if(e.key==='Enter')enter()};$('#teacherCode').focus();
+};
 show('home');
 </script>
 </body>
